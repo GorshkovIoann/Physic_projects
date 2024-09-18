@@ -3,6 +3,9 @@ import math
 import copy
 from earth import M, R, G, g
 
+t = True
+more200 = False
+
 
 def is_it_in_interval(a, b, num):
     if num > a and num < b:
@@ -30,12 +33,14 @@ class SpaceShip:
         self.velocity = velocity
         self.acceleration = acceleration
         self.basic_stop_acceleration = basic_stop_acceleration
+        self.normal = self.calculate_rv_normal()
 
     def calculate_fsv(self):
-        return (G*M/self.calculate_rvector_modul())**0.5
+        return (2*G*M/self.calculate_rvector_modul())**0.5
 
+    # (1,-1,0)- нормаль плоскости, в которой лежит нормаль к радиус вектору
     def calculate_rv_normal(self):
-        print([1, 1, (-self.coordinates[0]-self.coordinates[1])/self.coordinates[2]])
+        # print([1, 1, (-self.coordinates[0]-self.coordinates[1])/self.coordinates[2]])
         return [1, 1, (-self.coordinates[0]-self.coordinates[1])/self.coordinates[2]]
 
     def calculate_rvnormal_modul(self, v) -> float:
@@ -82,8 +87,11 @@ class SpaceShip:
         #  | |
         # back_powers
         # меняем координаты, ориентацию, скорость, ускорение
+        if (abs(self.acceleration[0])+abs(self.acceleration[1])+abs(self.acceleration[2]) < 5):
+            print("dmass<0")
         self.mass -= dmass_dt*time_step
         for i in range(3):
+
             self.acceleration[i] = back_powers[i]/self.mass
             self.velocity[i] += time_step*self.acceleration[i]
             self.coordinates[i] += time_step*self.velocity[i]
@@ -95,12 +103,26 @@ class SpaceShip:
         # при дальнейшем усложнении придется учитывать точку приложения
         # пока считаем,что можем поворачивать ориентацию ракеты без затрат топлива как хотим
         # со скоростью не быстрее 360 градусов в минуту и произвольно гасить любое возникающее угловое ускорение.
-        Fgravity_mod = G*M/(self.calculate_rvector_modul()**2)
+        rvec_mod = self.calculate_rvector_modul()
+        Fgravity_mod = G*M*self.mass/(rvec_mod**2)
+        if (Fgravity_mod > 10*self.mass):
+            print("fgravity_mod_acceleration>20......")
+        if (Fgravity_mod < 2*self.mass):
+            print("fgravity_mod_acceleration<2......")
         rvec = self.calculate_rvector_orientation()
-        Fgravity = [-(Fgravity_mod*math.cos(rvec[0])),
-                    -(Fgravity_mod*math.cos(rvec[1])),
-                    -(Fgravity_mod*math.cos(rvec[2]))]
+        # Fgravity = [-(self.coordinates[0]+1)/abs(self.coordinates[0]+1)*(Fgravity_mod*math.cos(rvec[0])),
+        #            -(self.coordinates[1]+1)/abs(self.coordinates[1]+1) *
+        #            (Fgravity_mod*math.cos(rvec[1])),
+        #
+        #             -(self.coordinates[2]+1)/abs(self.coordinates[2]+1)*(Fgravity_mod*math.cos(rvec[2]))]
+        Fgravity_proc = Fgravity_mod / \
+            (abs(self.coordinates[0]) +
+             abs(self.coordinates[1])+abs(self.coordinates[2]))
+        Fgravity = [-Fgravity_proc*self.coordinates[0], -Fgravity_proc *
+                    self.coordinates[1], -Fgravity_proc*self.coordinates[2]]
         # try:
+        if (self.coordinates[2] < 0):
+            print("z<0")
         dmass_dt, back_powers, side_powers = self._calculate_own_powers_toMCS(
             Fgravity)
 
@@ -118,11 +140,12 @@ class SpaceShip:
             back_powers=[0, 0, 0],
             side_powers=[0, 0, 0]
     ):
+        global t, more200
         rvec_mod = self.calculate_rvector_modul()
         rvec = self.calculate_rvector_orientation()
         velocity_mod = self.calculate_velocity_modul()
         acceleration_mod = self.calculate_acceleration_modul()
-        if rvec_mod < 200000+R:
+        if rvec_mod < 200000+R and not (more200):
             # if acceleration_mod > 7*g:
             #   print("прямо по курсу черная дыра\n")
             # потом придумаем что делать при перегрузе которого быть не должно
@@ -142,13 +165,17 @@ class SpaceShip:
             # вывод по круговым орбитам надо будет посчитать
 
         else:
+            more200 = True
 
             wonted_velocity_mod = self.calculate_fsv()
             velocity_mod = self.calculate_velocity_modul()
             if self.mass < 10:
                 print("malo mass")
             normal = self.calculate_rv_normal()
+
             normal_mod = self.calculate_rvnormal_modul(normal)
+            if ((abs(normal[0]-self.normal[0])**2 + abs(normal[1]-self.normal[1])**2 + abs(normal[2]-self.normal[2])**2)**0.5 > normal_mod):
+                normal = [-normal[0], -normal[1], -normal[2]]
             normal_orientation = self.calculate_rvnormall_orientation(
                 normal, normal_mod)
             print(normal_mod, normal_orientation)
@@ -160,6 +187,7 @@ class SpaceShip:
             else:
                 print("...")
             acceleration_mod = self.calculate_acceleration_modul()
+
             if acceleration_mod > 9*g:
                 print("прямо по курсу черная дыра\n")
             # хотим выровнять ракету по нормали, поворачивая не быстрее чем на 20 градусов в dt
@@ -172,8 +200,10 @@ class SpaceShip:
                 if self.orientation[i]-normal_orientation[i] < -0.1:
                     self.orientation[i] += min((normal_orientation[i] -
                                                 self.orientation[i]), (3.14/9))
+            if (t):
+                t = False
+                self.velocity = wonted_velocity
 
-            self.velocity = wonted_velocity
             return 0, back_powers, [0, 0, 0]
             wonted_power = [
                 self.mass * is_it_in_interval(-6*g, 6*g, wonted_velocity[0] - self.velocity[0])*math.cos(
@@ -218,14 +248,14 @@ class SpaceShip:
         arr_velocity = []
         arr_acceleration = []
         time = 0
-        while time < 8000:  # 400000+R:
+        while time < 12000:  # 400000+R:
             time += 1
             if time >= 1200:
                 time = time
             print("time:", time, "\n")
             dmass_dt, back_powers, side_powers = self._calculate_powers()
             self._update(1, back_powers, side_powers, dmass_dt)
-            arr_mass.append(self.mass)
+            arr_mass.append(copy.deepcopy(self.mass))
             arr_coordinates.append(copy.deepcopy(self.coordinates))
             arr_orientation.append(copy.deepcopy(self.orientation))
             arr_velocity.append(copy.deepcopy(self.velocity))
